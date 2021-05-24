@@ -6,6 +6,7 @@ import (
 	"fmt"
 	fetch2 "github.com/spacemeshos/go-spacemesh/fetch"
 	"github.com/spacemeshos/go-spacemesh/layerfetcher"
+	"github.com/spacemeshos/go-spacemesh/p2p/p2pcrypto"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -233,6 +234,16 @@ type mockBlocksProvider struct {
 	mp map[types.BlockID]struct{}
 }
 
+type stupidPeersMock struct {
+}
+
+func (s stupidPeersMock) GetPeers() []p2ppeers.Peer {
+	return []p2ppeers.Peer{p2pcrypto.NewRandomPubkey(), p2pcrypto.NewRandomPubkey()}
+}
+
+func (s stupidPeersMock) Close() {
+}
+
 func (mbp mockBlocksProvider) GetGoodPatternBlocks(layer types.LayerID) (map[types.BlockID]struct{}, error) {
 	return nil, errors.New("not implemented")
 }
@@ -280,6 +291,9 @@ func addTxsToPool(pool txMemPool, txs []*types.Transaction) {
 func TestSyncer_Start(t *testing.T) {
 	syncs, _, clock := SyncMockFactory(2, conf, t.Name(), memoryDB, newMockPoetDb)
 	defer clock.Close()
+	n := &stupidPeersMock{}
+	syncs[0].net.peers = n
+	syncs[1].net.peers = n
 	syn := syncs[0]
 
 	syn.Start(context.TODO())
@@ -1536,7 +1550,7 @@ func TestSyncer_p2pSyncForTwoLayers(t *testing.T) {
 	//atxdb := activation.NewDB(atxDb, &mockIStore{}, syncedMsh.DB, layersPerEpoch, goldenATXID, &validatorMock{}, l.WithName("atxDB"))
 	layerFetcher.AddDBs(syncedMsh.Blocks(), atxDb, syncedMsh.Transactions(), poetDB, syncedMsh.InputVector())
 	_ = NewSync(context.TODO(), syncedMiner, syncedMsh, state.NewTxMemPool(), synecdAtxPool, blockEligibilityValidatorMock{}, newMockPoetDb(), conf, timer, layerFetcher, l.WithName("synced"))
-	atx := types.NewActivationTx(types.NIPSTChallenge{}, types.Address{}, &types.NIPST{}, &types.PostProof{})
+	atx := types.NewActivationTx(types.NIPSTChallenge{}, types.Address{}, &types.NIPST{}, 0, &types.PostProof{})
 	atx.CalcAndSetID()
 	fmt.Println("ATX ID ", atx.ShortString())
 
@@ -2072,6 +2086,7 @@ func TestSyncer_Await(t *testing.T) {
 	defer clock.Close()
 	syncer := syncs[0]
 	defer syncer.Close()
+	defer syncs[1].Close()
 	err := syncer.AddBlockWithTxs(types.NewExistingBlock(1, []byte(rand.String(8)), nil))
 	r.NoError(err)
 	lv := &mockLayerValidator{0, 0, 0, nil, nil}
